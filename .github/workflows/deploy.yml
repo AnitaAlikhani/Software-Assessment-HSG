@@ -7,42 +7,75 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: github-pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Check out repository
+      - name: Check out main app
         uses: actions/checkout@v7
+        with:
+          ref: main
+          path: main-app
+          persist-credentials: false
+
+      - name: Check out Figma sync preview
+        uses: actions/checkout@v7
+        with:
+          ref: nil-figma-sync
+          path: preview-app
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
           node-version: '22'
 
-      - name: Install dependencies
+      - name: Install main dependencies
+        working-directory: main-app
         run: npm install --no-audit --no-fund
 
-      - name: Build app for this repository's Pages URL
+      - name: Build main app
+        working-directory: main-app
         run: npm run build -- --base=/Software-Assessment---HSG/
 
+      - name: Install preview dependencies
+        working-directory: preview-app
+        run: npm install --no-audit --no-fund
+
+      - name: Build Figma sync preview
+        working-directory: preview-app
+        run: npm run build -- --base=/Software-Assessment---HSG/previews/nil-figma-sync/
+
+      - name: Assemble main site and branch preview
+        run: |
+          mkdir -p site/previews/nil-figma-sync
+          cp -a main-app/dist/. site/
+          cp -a preview-app/dist/. site/previews/nil-figma-sync/
+          git -C preview-app rev-parse HEAD > site/previews/nil-figma-sync/revision.txt
+
+      - name: Upload combined site
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v6
 
-      - name: Upload built app
-        uses: actions/upload-pages-artifact@v5
-        with:
-          path: dist
-
-      - name: Deploy
+      - name: Deploy main site and branch preview
         id: deployment
         uses: actions/deploy-pages@v5
